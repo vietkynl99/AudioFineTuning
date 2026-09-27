@@ -72,6 +72,8 @@ let currentFile: File | null = null;
 let bands: EqBand[] = defaultBands();
 let cachedAudioBuffer: AudioBuffer | null = null;
 let liveChain: LiveFilterChain | null = null;
+let previewObjectUrl: string | null = null;
+let resultObjectUrl: string | null = null;
 
 function renderPresets() {
   presetsEl.innerHTML = "";
@@ -140,6 +142,14 @@ function resetForNewFile() {
   liveChain = null;
   cachedAudioBuffer = null;
   bands = defaultBands();
+  if (previewObjectUrl) {
+    URL.revokeObjectURL(previewObjectUrl);
+    previewObjectUrl = null;
+  }
+  if (resultObjectUrl) {
+    URL.revokeObjectURL(resultObjectUrl);
+    resultObjectUrl = null;
+  }
   tuneCard.classList.add("hidden");
   exportCard.classList.add("hidden");
   resultCard.classList.add("hidden");
@@ -160,7 +170,9 @@ videoInput.addEventListener("change", async () => {
     prepStatusEl.textContent = "Đang giải mã âm thanh…";
     cachedAudioBuffer = await decodeAudioFile(audioBlob);
 
-    audioPreview.src = URL.createObjectURL(audioBlob);
+    if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+    previewObjectUrl = URL.createObjectURL(audioBlob);
+    audioPreview.src = previewObjectUrl;
     audioPreview.addEventListener("play", ensureLiveChainConnected, { once: true });
 
     prepStatusEl.textContent = "";
@@ -191,9 +203,10 @@ exportBtn.addEventListener("click", async () => {
     const outputBlob = await muxAudioIntoVideo(currentFile, processedWav, setProgress);
 
     exportStatusEl.textContent = "Hoàn tất!";
-    const url = URL.createObjectURL(outputBlob);
-    resultPreview.src = url;
-    downloadLink.href = url;
+    if (resultObjectUrl) URL.revokeObjectURL(resultObjectUrl);
+    resultObjectUrl = URL.createObjectURL(outputBlob);
+    resultPreview.src = resultObjectUrl;
+    downloadLink.href = resultObjectUrl;
     downloadLink.download = `eq_${currentFile.name}`;
     resultCard.classList.remove("hidden");
   } catch (err) {

@@ -139,9 +139,13 @@ function ensureLiveChainConnected() {
 }
 
 function resetForNewFile() {
-  liveChain = null;
+  if (liveChain) {
+    void liveChain.context.close();
+    liveChain = null;
+  }
   cachedAudioBuffer = null;
   bands = defaultBands();
+  renderBands();
   if (previewObjectUrl) {
     URL.revokeObjectURL(previewObjectUrl);
     previewObjectUrl = null;
@@ -162,6 +166,7 @@ videoInput.addEventListener("change", async () => {
   resetForNewFile();
 
   fileNameEl.textContent = file.name;
+  videoInput.disabled = true;
 
   try {
     prepStatusEl.textContent = "Đang tách âm thanh để nghe thử…";
@@ -181,6 +186,8 @@ videoInput.addEventListener("change", async () => {
   } catch (err) {
     console.error(err);
     prepStatusEl.textContent = `Lỗi: ${err instanceof Error ? err.message : String(err)}`;
+  } finally {
+    videoInput.disabled = false;
   }
 });
 
@@ -192,6 +199,7 @@ function setProgress(ratio: number) {
 exportBtn.addEventListener("click", async () => {
   if (!currentFile || !cachedAudioBuffer) return;
   exportBtn.disabled = true;
+  videoInput.disabled = true;
   resultCard.classList.add("hidden");
   progressBar.style.width = "0%";
 
@@ -214,6 +222,7 @@ exportBtn.addEventListener("click", async () => {
     exportStatusEl.textContent = `Lỗi: ${err instanceof Error ? err.message : String(err)}`;
   } finally {
     exportBtn.disabled = false;
+    videoInput.disabled = false;
     progressWrap.classList.add("hidden");
   }
 });

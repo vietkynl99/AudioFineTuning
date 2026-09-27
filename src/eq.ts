@@ -32,6 +32,7 @@ export const PRESETS: Preset[] = [
 export interface LiveFilterChain {
   filters: BiquadFilterNode[];
   input: AudioNode;
+  context: AudioContext;
 }
 
 // Builds a persistent chain of one filter per band, wired source -> f0 -> f1 -> ... -> destination.
@@ -51,7 +52,7 @@ export function createLiveFilterChain(context: AudioContext, bands: EqBand[]): L
   }
   filters[filters.length - 1].connect(context.destination);
 
-  return { filters, input: filters[0] };
+  return { filters, input: filters[0], context };
 }
 
 export async function decodeAudioFile(file: Blob): Promise<AudioBuffer> {

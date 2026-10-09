@@ -170,7 +170,9 @@ async function prepareAudioForFile(file: File) {
     prepStatusEl.textContent = "Đang tải công cụ xử lý video…";
     const audioBlob = await extractAudio(
       file,
-      undefined,
+      (ratio) => {
+        prepStatusEl.textContent = `Đang tách âm thanh… ${Math.round(ratio * 100)}%`;
+      },
       (ratio) => {
         prepStatusEl.textContent = `Đang tải công cụ xử lý video… ${Math.round(ratio * 100)}%`;
       }

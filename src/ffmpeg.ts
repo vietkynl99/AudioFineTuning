@@ -22,7 +22,7 @@ let busy = false;
 async function cachedFetchBlobURL(
   url: string,
   mimeType: string,
-  onProgress?: (loaded: number, total: number) => void
+  onProgress?: (ratio: number) => void
 ): Promise<string> {
   const absoluteUrl = new URL(url, location.href).toString();
   const cache = await caches.open(CORE_CACHE_NAME);
@@ -43,6 +43,10 @@ async function cachedFetchBlobURL(
       throw new Error(`Tải ${url.split("/").pop()} thất bại: HTTP ${networkResponse.status}`);
     }
 
+    // Content-Length is the compressed transfer size when the CDN
+    // gzip/brotli-compresses the response (GitHub Pages does), but `loaded`
+    // counts decoded bytes from the stream — clamp so a compressible asset
+    // can't push the ratio past 1 before the download has actually finished.
     const total = Number(networkResponse.headers.get("content-length")) || 0;
     const reader = networkResponse.body.getReader();
     const chunks: Uint8Array[] = [];
@@ -52,15 +56,16 @@ async function cachedFetchBlobURL(
       if (done) break;
       chunks.push(value);
       loaded += value.length;
-      onProgress?.(loaded, total);
+      onProgress?.(total ? Math.min(loaded / total, 1) : 0);
     }
+    onProgress?.(1);
 
     response = new Response(new Blob(chunks as BlobPart[]), {
       headers: { "Content-Type": mimeType },
     });
     await cache.put(absoluteUrl, response.clone());
   } else {
-    onProgress?.(1, 1);
+    onProgress?.(1);
   }
 
   return URL.createObjectURL(await response.blob());
@@ -85,12 +90,12 @@ export async function getFFmpeg(
       const coreURL = await cachedFetchBlobURL(
         `${CORE_BASE_URL}/ffmpeg-core.js`,
         "text/javascript",
-        (loaded, total) => onLoadProgress?.(total ? (loaded / total) * JS_WEIGHT : 0)
+        (ratio) => onLoadProgress?.(ratio * JS_WEIGHT)
       );
       const wasmURL = await cachedFetchBlobURL(
         `${CORE_BASE_URL}/ffmpeg-core.wasm`,
         "application/wasm",
-        (loaded, total) => onLoadProgress?.(total ? JS_WEIGHT + (loaded / total) * (1 - JS_WEIGHT) : JS_WEIGHT)
+        (ratio) => onLoadProgress?.(JS_WEIGHT + ratio * (1 - JS_WEIGHT))
       );
       await instance.load({ coreURL, wasmURL });
     } catch (err) {

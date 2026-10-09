@@ -74,6 +74,8 @@ let currentFile: File | null = null;
 let bands: EqBand[] = defaultBands();
 let cachedAudioBuffer: AudioBuffer | null = null;
 let liveChain: LiveFilterChain | null = null;
+let previewObjectUrl: string | null = null;
+let resultObjectUrl: string | null = null;
 
 function renderPresets() {
   presetsEl.innerHTML = "";
@@ -139,9 +141,21 @@ function ensureLiveChainConnected() {
 }
 
 function resetForNewFile() {
-  liveChain = null;
+  if (liveChain) {
+    void liveChain.context.close();
+    liveChain = null;
+  }
   cachedAudioBuffer = null;
   bands = defaultBands();
+  renderBands();
+  if (previewObjectUrl) {
+    URL.revokeObjectURL(previewObjectUrl);
+    previewObjectUrl = null;
+  }
+  if (resultObjectUrl) {
+    URL.revokeObjectURL(resultObjectUrl);
+    resultObjectUrl = null;
+  }
   tuneCard.classList.add("hidden");
   exportCard.classList.add("hidden");
   resultCard.classList.add("hidden");
@@ -150,6 +164,7 @@ function resetForNewFile() {
 
 async function prepareAudioForFile(file: File) {
   retryBtn.classList.add("hidden");
+  videoInput.disabled = true;
 
   try {
     prepStatusEl.textContent = "Đang tải công cụ xử lý video…";
@@ -164,7 +179,9 @@ async function prepareAudioForFile(file: File) {
     prepStatusEl.textContent = "Đang giải mã âm thanh…";
     cachedAudioBuffer = await decodeAudioFile(audioBlob);
 
-    audioPreview.src = URL.createObjectURL(audioBlob);
+    if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+    previewObjectUrl = URL.createObjectURL(audioBlob);
+    audioPreview.src = previewObjectUrl;
     audioPreview.addEventListener("play", ensureLiveChainConnected, { once: true });
 
     prepStatusEl.textContent = "";
@@ -174,6 +191,8 @@ async function prepareAudioForFile(file: File) {
     console.error(err);
     prepStatusEl.textContent = `Lỗi: ${err instanceof Error ? err.message : String(err)}`;
     retryBtn.classList.remove("hidden");
+  } finally {
+    videoInput.disabled = false;
   }
 }
 
@@ -199,6 +218,7 @@ function setProgress(ratio: number) {
 exportBtn.addEventListener("click", async () => {
   if (!currentFile || !cachedAudioBuffer) return;
   exportBtn.disabled = true;
+  videoInput.disabled = true;
   resultCard.classList.add("hidden");
   progressBar.style.width = "0%";
 
@@ -210,9 +230,10 @@ exportBtn.addEventListener("click", async () => {
     const outputBlob = await muxAudioIntoVideo(currentFile, processedWav, setProgress);
 
     exportStatusEl.textContent = "Hoàn tất!";
-    const url = URL.createObjectURL(outputBlob);
-    resultPreview.src = url;
-    downloadLink.href = url;
+    if (resultObjectUrl) URL.revokeObjectURL(resultObjectUrl);
+    resultObjectUrl = URL.createObjectURL(outputBlob);
+    resultPreview.src = resultObjectUrl;
+    downloadLink.href = resultObjectUrl;
     downloadLink.download = `eq_${currentFile.name}`;
     resultCard.classList.remove("hidden");
   } catch (err) {
@@ -220,6 +241,7 @@ exportBtn.addEventListener("click", async () => {
     exportStatusEl.textContent = `Lỗi: ${err instanceof Error ? err.message : String(err)}`;
   } finally {
     exportBtn.disabled = false;
+    videoInput.disabled = false;
     progressWrap.classList.add("hidden");
   }
 });

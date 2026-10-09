@@ -13,6 +13,8 @@ const JS_WEIGHT = 0.03;
 
 let ffmpeg: FFmpeg | null = null;
 let loadPromise: Promise<FFmpeg> | null = null;
+let currentProgressCallback: ((ratio: number) => void) | null = null;
+let busy = false;
 
 // Fetches into the Cache Storage API (persists across reloads, unlike a
 // plain blob fetch) and reports byte progress — the wasm download is large
@@ -76,6 +78,9 @@ export async function getFFmpeg(
     if (onLog) {
       instance.on("log", ({ message }) => onLog(message));
     }
+    // Registered once here (rather than per-call in extractAudio/muxAudioIntoVideo)
+    // so repeated calls don't keep stacking listeners on the shared instance.
+    instance.on("progress", ({ progress }) => currentProgressCallback?.(progress));
     try {
       const coreURL = await cachedFetchBlobURL(
         `${CORE_BASE_URL}/ffmpeg-core.js`,
@@ -99,23 +104,40 @@ export async function getFFmpeg(
   return loadPromise;
 }
 
+// extractAudio/muxAudioIntoVideo share one FFmpeg instance and hardcoded virtual
+// filenames, so two overlapping calls would stomp on each other's files.
+function acquire() {
+  if (busy) throw new Error("Đang xử lý video, vui lòng đợi hoàn tất trước khi thao tác tiếp.");
+  busy = true;
+}
+
+function release() {
+  busy = false;
+  currentProgressCallback = null;
+}
+
 export async function extractAudio(
   videoFile: File,
   onProgress?: (ratio: number) => void,
   onLoadProgress?: (ratio: number) => void
 ): Promise<Blob> {
-  const ff = await getFFmpeg(undefined, onLoadProgress);
-  const inputName = "input" + extOf(videoFile.name);
-  const outputName = "audio.wav";
+  acquire();
+  try {
+    const ff = await getFFmpeg(undefined, onLoadProgress);
+    const inputName = "input" + extOf(videoFile.name);
+    const outputName = "audio.wav";
 
-  if (onProgress) ff.on("progress", ({ progress }) => onProgress(progress));
-  await ff.writeFile(inputName, await fetchFile(videoFile));
-  await ff.exec(["-i", inputName, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", outputName]);
-  const data = (await ff.readFile(outputName)) as Uint8Array;
-  await ff.deleteFile(inputName);
-  await ff.deleteFile(outputName);
+    currentProgressCallback = onProgress ?? null;
+    await ff.writeFile(inputName, await fetchFile(videoFile));
+    await ff.exec(["-i", inputName, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", outputName]);
+    const data = (await ff.readFile(outputName)) as Uint8Array;
+    await ff.deleteFile(inputName);
+    await ff.deleteFile(outputName);
 
-  return new Blob([data.buffer as ArrayBuffer], { type: "audio/wav" });
+    return new Blob([data.buffer as ArrayBuffer], { type: "audio/wav" });
+  } finally {
+    release();
+  }
 }
 
 export async function muxAudioIntoVideo(
@@ -124,29 +146,34 @@ export async function muxAudioIntoVideo(
   onProgress?: (ratio: number) => void,
   onLoadProgress?: (ratio: number) => void
 ): Promise<Blob> {
-  const ff = await getFFmpeg(undefined, onLoadProgress);
-  const inputVideoName = "input" + extOf(videoFile.name);
-  const inputAudioName = "processed.wav";
-  const outputName = "output" + extOf(videoFile.name);
+  acquire();
+  try {
+    const ff = await getFFmpeg(undefined, onLoadProgress);
+    const inputVideoName = "input" + extOf(videoFile.name);
+    const inputAudioName = "processed.wav";
+    const outputName = "output" + extOf(videoFile.name);
 
-  if (onProgress) ff.on("progress", ({ progress }) => onProgress(progress));
-  await ff.writeFile(inputVideoName, await fetchFile(videoFile));
-  await ff.writeFile(inputAudioName, await fetchFile(audioBlob));
-  await ff.exec([
-    "-i", inputVideoName,
-    "-i", inputAudioName,
-    "-c:v", "copy",
-    "-map", "0:v:0",
-    "-map", "1:a:0",
-    "-shortest",
-    outputName,
-  ]);
-  const data = (await ff.readFile(outputName)) as Uint8Array;
-  await ff.deleteFile(inputVideoName);
-  await ff.deleteFile(inputAudioName);
-  await ff.deleteFile(outputName);
+    currentProgressCallback = onProgress ?? null;
+    await ff.writeFile(inputVideoName, await fetchFile(videoFile));
+    await ff.writeFile(inputAudioName, await fetchFile(audioBlob));
+    await ff.exec([
+      "-i", inputVideoName,
+      "-i", inputAudioName,
+      "-c:v", "copy",
+      "-map", "0:v:0",
+      "-map", "1:a:0",
+      "-shortest",
+      outputName,
+    ]);
+    const data = (await ff.readFile(outputName)) as Uint8Array;
+    await ff.deleteFile(inputVideoName);
+    await ff.deleteFile(inputAudioName);
+    await ff.deleteFile(outputName);
 
-  return new Blob([data.buffer as ArrayBuffer], { type: videoFile.type || "video/mp4" });
+    return new Blob([data.buffer as ArrayBuffer], { type: videoFile.type || "video/mp4" });
+  } finally {
+    release();
+  }
 }
 
 function extOf(filename: string): string {

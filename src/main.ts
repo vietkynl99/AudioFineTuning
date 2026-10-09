@@ -23,6 +23,7 @@ app.innerHTML = `
         <input id="video-input" type="file" accept="video/*" />
       </label>
       <div id="prep-status" class="status"></div>
+      <button id="retry-btn" class="primary-btn hidden">Thử lại</button>
     </section>
 
     <section class="card hidden" id="tune-card">
@@ -55,6 +56,7 @@ app.innerHTML = `
 const videoInput = document.querySelector<HTMLInputElement>("#video-input")!;
 const fileNameEl = document.querySelector<HTMLSpanElement>("#file-name")!;
 const prepStatusEl = document.querySelector<HTMLDivElement>("#prep-status")!;
+const retryBtn = document.querySelector<HTMLButtonElement>("#retry-btn")!;
 const tuneCard = document.querySelector<HTMLDivElement>("#tune-card")!;
 const audioPreview = document.querySelector<HTMLAudioElement>("#audio-preview")!;
 const presetsEl = document.querySelector<HTMLDivElement>("#presets")!;
@@ -143,19 +145,21 @@ function resetForNewFile() {
   tuneCard.classList.add("hidden");
   exportCard.classList.add("hidden");
   resultCard.classList.add("hidden");
+  retryBtn.classList.add("hidden");
 }
 
-videoInput.addEventListener("change", async () => {
-  const file = videoInput.files?.[0] ?? null;
-  if (!file) return;
-  currentFile = file;
-  resetForNewFile();
-
-  fileNameEl.textContent = file.name;
+async function prepareAudioForFile(file: File) {
+  retryBtn.classList.add("hidden");
 
   try {
-    prepStatusEl.textContent = "Đang tách âm thanh để nghe thử…";
-    const audioBlob = await extractAudio(file);
+    prepStatusEl.textContent = "Đang tải công cụ xử lý video…";
+    const audioBlob = await extractAudio(
+      file,
+      undefined,
+      (ratio) => {
+        prepStatusEl.textContent = `Đang tải công cụ xử lý video… ${Math.round(ratio * 100)}%`;
+      }
+    );
 
     prepStatusEl.textContent = "Đang giải mã âm thanh…";
     cachedAudioBuffer = await decodeAudioFile(audioBlob);
@@ -169,7 +173,22 @@ videoInput.addEventListener("change", async () => {
   } catch (err) {
     console.error(err);
     prepStatusEl.textContent = `Lỗi: ${err instanceof Error ? err.message : String(err)}`;
+    retryBtn.classList.remove("hidden");
   }
+}
+
+videoInput.addEventListener("change", () => {
+  const file = videoInput.files?.[0] ?? null;
+  if (!file) return;
+  currentFile = file;
+  resetForNewFile();
+
+  fileNameEl.textContent = file.name;
+  prepareAudioForFile(file);
+});
+
+retryBtn.addEventListener("click", () => {
+  if (currentFile) prepareAudioForFile(currentFile);
 });
 
 function setProgress(ratio: number) {

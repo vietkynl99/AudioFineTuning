@@ -163,6 +163,10 @@ h3 {
   min-height: 1.2em;
 }
 
+#retry-btn {
+  margin-top: 12px;
+}
+
 .progress-wrap {
   margin-top: 10px;
   height: 6px;
